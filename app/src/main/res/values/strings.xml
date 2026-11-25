@@ -1,0 +1,80 @@
+<resources>
+    <string name="app_name">CricPulse</string>
+    <string name="app_tagline">International Cricket Schedule</string>
+
+    <!-- Navigation -->
+    <string name="nav_fixtures">Fixtures</string>
+    <string name="nav_alerts">Alerts</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Filters & Tabs -->
+    <string name="filter_all">All</string>
+    <string name="filter_test">Test</string>
+    <string name="filter_odi">ODI</string>
+    <string name="filter_t20i">T20I</string>
+    <string name="tab_upcoming">Upcoming</string>
+    <string name="tab_live">Live</string>
+    <string name="tab_completed">Completed</string>
+    <string name="search_placeholder">Search team, series, or venue…</string>
+    <string name="filter_all_teams">All Teams</string>
+
+    <!-- Match Card & Detail -->
+    <string name="live_badge">LIVE</string>
+    <string name="notify_me">Notify Me</string>
+    <string name="alerts_active_label">Alerts Active</string>
+    <string name="match_local_time_label">Your Local Time</string>
+    <string name="match_utc_time_label">UTC Time</string>
+    <string name="match_venue_label">Venue</string>
+    <string name="match_reminders_section_title">Pre-Match Alert Schedule</string>
+    <string name="reminder_stage_12h_title">12 Hours Before</string>
+    <string name="reminder_stage_2h_title">2 Hours Before</string>
+    <string name="reminder_stage_5m_title">5 Minutes Before</string>
+    <string name="reminder_passed">Window passed</string>
+    <string name="reminder_muted_globally">Muted globally in Settings</string>
+    <string name="match_already_started_notice">Pre-match alerts are available for upcoming fixtures.</string>
+
+    <!-- Permissions -->
+    <string name="permission_notifications_title">Enable Match Notifications</string>
+    <string name="permission_notifications_body">Allow CricPulse to send timely alerts 12h, 2h, and 5m before international matches begin.</string>
+    <string name="permission_exact_alarm_title">Allow Exact Match Alarms</string>
+    <string name="permission_exact_alarm_body">Grant Exact Alarms so your 5-minute pre-match alerts arrive right before the first ball, even in Doze mode.</string>
+    <string name="action_allow">Allow</string>
+    <string name="action_open_settings">Open Settings</string>
+    <string name="action_dismiss">Later</string>
+
+    <!-- Notifications -->
+    <string name="notification_channel_name">Match Start Alerts</string>
+    <string name="notification_channel_description">Pre-match reminders 12 hours, 2 hours, and 5 minutes before international cricket fixtures start.</string>
+    <string name="test_notification_title">CricPulse Test Alert</string>
+    <string name="test_notification_sent">Test notification sent! Check your status bar.</string>
+
+    <!-- Settings -->
+    <string name="settings_title">Preferences &amp; Alerts</string>
+    <string name="settings_test_alert_title">Verify Notification Alerts</string>
+    <string name="settings_test_alert_subtitle">Preview how CricPulse match alerts look and sound on your device.</string>
+    <string name="settings_test_alert_button">Test Notification</string>
+    <string name="settings_intervals_title">Global Alert Intervals</string>
+    <string name="settings_favorites_title">Favorite Teams</string>
+    <string name="settings_auto_notify_title">Auto-notify for favorite teams</string>
+    <string name="settings_auto_notify_subtitle">Automatically schedule pre-match alerts for every upcoming match featuring your selected teams.</string>
+    <string name="settings_api_title">Cricket Data Source</string>
+    <string name="settings_api_configure">Configure API Key</string>
+    <string name="settings_sync_now">Sync Fixtures</string>
+    <string name="settings_appearance_title">Appearance</string>
+    <string name="settings_dynamic_color_title">Dynamic Color (Material You)</string>
+    <string name="settings_dynamic_color_subtitle">Blend app accents with your Android wallpaper colors.</string>
+
+    <!-- Empty states -->
+    <string name="empty_fixtures_title">No fixtures match your filters</string>
+    <string name="empty_fixtures_subtitle">Try switching formats, clearing your team filter, or checking another match status tab.</string>
+    <string name="empty_alerts_title">No active match alerts</string>
+    <string name="empty_alerts_subtitle">Tap the bell icon on any upcoming fixture or enable auto-notify for your favorite teams.</string>
+    <string name="action_clear_filters">Reset Filters</string>
+
+    <!-- Accessibility Content Descriptions -->
+    <string name="cd_refresh_fixtures">Sync cricket fixtures</string>
+    <string name="cd_clear_search">Clear search query</string>
+    <string name="cd_toggle_notification">Toggle match notifications</string>
+    <string name="cd_close_sheet">Close match details</string>
+    <string name="cd_stadium_banner">International cricket stadium under floodlights</string>
+</resources>

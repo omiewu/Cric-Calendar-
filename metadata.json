@@ -1,0 +1,6 @@
+{
+  "name": "CricPulse",
+  "description": "International cricket fixture schedule for Test, ODI, and T20I matches with automatic local timezone conversion and exact multi-stage pre-match notifications.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
