@@ -560,7 +560,7 @@ private fun ApiKeyConfigDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(
-                    text = "Connect a free-tier CricketData.org (CricAPI) key to sync live international fixtures. Leave blank to use the built-in full-year schedule.",
+                    text = "Queries /v1/series, /v1/series_info, and /v1/currentMatches using your CricAPI key (also configurable via CRIC_API_KEY in AI Studio Secrets). Leave blank to use the built-in schedule.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

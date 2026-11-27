@@ -286,7 +286,8 @@ class CricPulseViewModel(application: Application) : AndroidViewModel(applicatio
                 val outcome = repository.ensureSeededAndSync(forceRemote = forceRemote)
                 if (showToast) {
                     val msg = when (outcome) {
-                        is SyncOutcome.LiveApiSuccess -> "Synced ${outcome.matchCount} live fixtures from Cricket API."
+                        is SyncOutcome.LiveApiSuccess ->
+                            "Synced ${outcome.matchCount} fixtures across ${outcome.seriesCount} series from CricAPI."
                         is SyncOutcome.BuiltInScheduleLoaded -> outcome.note
                     }
                     _snackbarEvents.tryEmit(msg)

@@ -9,6 +9,7 @@ import com.example.data.mock.MockCricketDataset
 import com.example.data.preferences.UserPreferencesRepository
 import com.example.data.remote.CricApiClientFactory
 import com.example.data.remote.CricApiMatchDto
+import com.example.data.remote.CricApiSeriesDto
 import com.example.model.CricketMatch
 import com.example.model.MatchFormat
 import com.example.model.MatchReminder
@@ -19,12 +20,15 @@ import com.example.model.UserPreferences
 import com.example.notifications.MatchAlarmScheduler
 import com.example.util.MatchTimeFormatter
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.withContext
 
 sealed interface SyncOutcome {
-    data class LiveApiSuccess(val matchCount: Int) : SyncOutcome
+    data class LiveApiSuccess(val matchCount: Int, val seriesCount: Int) : SyncOutcome
     data class BuiltInScheduleLoaded(val matchCount: Int, val note: String) : SyncOutcome
 }
 
@@ -73,16 +77,22 @@ class MatchRepository(
     suspend fun ensureSeededAndSync(forceRemote: Boolean = false): SyncOutcome = withContext(Dispatchers.IO) {
         val prefs = preferencesRepository.getPreferencesOnce()
         val apiKey = resolveEffectiveApiKey(prefs)
+        var remoteFailureReason: String? = null
 
         if (apiKey.isNotEmpty()) {
-            val remoteResult = fetchFromCricApi(apiKey, prefs.apiBaseUrl)
-            if (remoteResult.isNotEmpty()) {
-                matchDao.upsertMatches(remoteResult)
+            val remoteFetch = fetchFromCricApi(apiKey, prefs.apiBaseUrl)
+            remoteFailureReason = remoteFetch.failureReason
+            if (remoteFetch.matches.isNotEmpty()) {
+                matchDao.clearAllMatches()
+                matchDao.upsertMatches(remoteFetch.matches)
                 if (prefs.autoNotifyFavorites && prefs.favoriteTeams.isNotEmpty()) {
                     applyAutoNotifyFavoritesInternal(prefs)
                 }
                 rescheduleAllEnabledAlarms()
-                return@withContext SyncOutcome.LiveApiSuccess(remoteResult.size)
+                return@withContext SyncOutcome.LiveApiSuccess(
+                    matchCount = remoteFetch.matches.size,
+                    seriesCount = remoteFetch.seriesCount
+                )
             }
         }
 
@@ -94,10 +104,13 @@ class MatchRepository(
                 applyAutoNotifyFavoritesInternal(prefs)
             }
             rescheduleAllEnabledAlarms()
-            val note = if (apiKey.isNotEmpty()) {
-                "Live API returned no international fixtures; showing built-in ${MatchTimeFormatter.currentCalendarYear()} schedule."
-            } else {
-                "Loaded built-in ${MatchTimeFormatter.currentCalendarYear()} international schedule."
+            val note = when {
+                !remoteFailureReason.isNullOrBlank() ->
+                    "CricAPI: $remoteFailureReason. Showing built-in ${MatchTimeFormatter.currentCalendarYear()} schedule."
+                apiKey.isNotEmpty() ->
+                    "Live API returned no international fixtures; showing built-in ${MatchTimeFormatter.currentCalendarYear()} schedule."
+                else ->
+                    "Loaded built-in ${MatchTimeFormatter.currentCalendarYear()} international schedule."
             }
             SyncOutcome.BuiltInScheduleLoaded(builtIn.size, note)
         } else {
@@ -106,25 +119,120 @@ class MatchRepository(
         }
     }
 
-    private suspend fun fetchFromCricApi(apiKey: String, baseUrl: String): List<MatchEntity> {
+    private data class RemoteFetchResult(
+        val matches: List<MatchEntity>,
+        val seriesCount: Int,
+        val failureReason: String? = null
+    )
+
+    private suspend fun fetchFromCricApi(apiKey: String, baseUrl: String): RemoteFetchResult {
         return try {
             val api = CricApiClientFactory.create(baseUrl)
-            val currentResp = runCatching { api.getCurrentMatches(apiKey = apiKey, offset = 0) }.getOrNull()
-            val scheduleResp = runCatching { api.getMatches(apiKey = apiKey, offset = 0) }.getOrNull()
-
-            val combined = buildList {
-                currentResp?.data?.let { addAll(it) }
-                scheduleResp?.data?.let { addAll(it) }
-            }.distinctBy { it.id }
-
             val nowMs = System.currentTimeMillis()
-            combined.mapNotNull { dto -> mapDtoToEntity(dto, nowMs) }
-        } catch (_: Exception) {
-            emptyList()
+
+            // Primary call: GET /v1/series?apikey=...&offset=0
+            val seriesResp = api.getSeries(apiKey = apiKey, offset = 0)
+            if (seriesResp.status.equals("failure", ignoreCase = true)) {
+                return RemoteFetchResult(
+                    matches = emptyList(),
+                    seriesCount = 0,
+                    failureReason = seriesResp.reason ?: "API request rejected"
+                )
+            }
+
+            val allSeries = seriesResp.data.orEmpty()
+            val prioritizedSeries = prioritizeInternationalSeries(allSeries).take(8)
+
+            // Fetch match lists for prioritized series + current live matches concurrently
+            val (seriesMatches, currentMatches) = coroutineScope {
+                val seriesJobs = prioritizedSeries.map { series ->
+                    async {
+                        val infoResp = runCatching {
+                            api.getSeriesInfo(apiKey = apiKey, seriesId = series.id)
+                        }.getOrNull()
+                        val resolvedSeriesName = infoResp?.data?.info?.name?.takeIf { it.isNotBlank() }
+                            ?: series.name?.takeIf { it.isNotBlank() }
+                        infoResp?.data?.matchList.orEmpty().map { dto ->
+                            dto to resolvedSeriesName
+                        }
+                    }
+                }
+                val currentJob = async {
+                    runCatching { api.getCurrentMatches(apiKey = apiKey, offset = 0) }
+                        .getOrNull()
+                        ?.data
+                        .orEmpty()
+                }
+                seriesJobs.awaitAll().flatten() to currentJob.await()
+            }
+
+            val seriesNameById = allSeries.associate { it.id to it.name }
+            val byMatchId = LinkedHashMap<String, Pair<CricApiMatchDto, String?>>()
+
+            // Add series fixtures first (with authoritative series name)
+            seriesMatches.forEach { (dto, seriesName) ->
+                byMatchId[dto.id] = dto to seriesName
+            }
+            // Merge live/current matches (preserving live scores and authoritative series names)
+            currentMatches.forEach { dto ->
+                val existingSeriesName = byMatchId[dto.id]?.second ?: dto.seriesId?.let { seriesNameById[it] }
+                byMatchId[dto.id] = dto to existingSeriesName
+            }
+
+            // Fallback to /v1/matches if series_info returned no match rows
+            if (byMatchId.isEmpty()) {
+                val fallbackMatches = runCatching { api.getMatches(apiKey = apiKey, offset = 0) }
+                    .getOrNull()
+                    ?.data
+                    .orEmpty()
+                fallbackMatches.forEach { dto ->
+                    val sName = dto.seriesId?.let { seriesNameById[it] }
+                    byMatchId[dto.id] = dto to sName
+                }
+            }
+
+            val entities = byMatchId.values.mapNotNull { (dto, seriesNameOverride) ->
+                mapDtoToEntity(dto, nowMs, seriesNameOverride)
+            }
+
+            RemoteFetchResult(
+                matches = entities,
+                seriesCount = prioritizedSeries.size
+            )
+        } catch (e: Exception) {
+            RemoteFetchResult(
+                matches = emptyList(),
+                seriesCount = 0,
+                failureReason = e.localizedMessage
+            )
         }
     }
 
-    private fun mapDtoToEntity(dto: CricApiMatchDto, nowMs: Long): MatchEntity? {
+    private fun prioritizeInternationalSeries(seriesList: List<CricApiSeriesDto>): List<CricApiSeriesDto> {
+        val internationalKeywords = listOf(
+            "tour of", "icc", "world cup", "champions trophy", "asia cup", "ashes",
+            "border-gavaskar", "tri-series", "t20i", "odi", "test"
+        )
+        val majorTeamNames = TeamCatalog.featuredTeams.map { it.name.lowercase() }
+
+        return seriesList
+            .filter { (it.matches ?: 0) > 0 || (it.odi ?: 0) > 0 || (it.t20 ?: 0) > 0 || (it.test ?: 0) > 0 }
+            .sortedByDescending { series ->
+                val lowerName = series.name?.lowercase().orEmpty()
+                var score = 0
+                if ((series.test ?: 0) > 0) score += 40
+                if ((series.odi ?: 0) > 0) score += 30
+                if (internationalKeywords.any { lowerName.contains(it) }) score += 25
+                if (majorTeamNames.any { lowerName.contains(it) }) score += 35
+                score
+            }
+    }
+
+    private fun mapDtoToEntity(
+        dto: CricApiMatchDto,
+        nowMs: Long,
+        seriesNameOverride: String? = null
+    ): MatchEntity? {
         val rawType = dto.matchType?.trim()?.lowercase() ?: return null
         val format = when (rawType) {
             "test" -> MatchFormat.TEST
@@ -157,8 +265,12 @@ class MatchRepository(
 
         val fullName = dto.name?.trim().orEmpty()
         val parts = fullName.split(",").map { it.trim() }
-        val seriesTitle = parts.getOrNull(1)?.ifBlank { null } ?: "International ${format.label} Fixture"
-        val matchNum = parts.getOrNull(0)?.ifBlank { null } ?: "${format.label} Match"
+        val seriesTitle = seriesNameOverride?.takeIf { it.isNotBlank() }
+            ?: parts.getOrNull(1)?.ifBlank { null }
+            ?: "International ${format.label} Series"
+        val matchNum = parts.getOrNull(1)?.takeIf { !seriesNameOverride.isNullOrBlank() }
+            ?: parts.getOrNull(0)?.ifBlank { null }
+            ?: "${format.label} Match"
 
         val venueRaw = dto.venue?.trim().orEmpty().ifBlank { "International Stadium" }
         val venueParts = venueRaw.split(",").map { it.trim() }
